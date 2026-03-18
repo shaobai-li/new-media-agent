@@ -3,11 +3,13 @@ from pathlib import Path
 from openai import OpenAI
 import subprocess
 import json
+from dotenv import load_dotenv
 
+load_dotenv()
 
 
 client = OpenAI(
-    api_key=os.getenv("DEEPSEEK_API_KEY", "sk-b3dac126ee83430abd8075e0d612d119"), 
+    api_key=os.getenv("DEEPSEEK_API_KEY"),
     base_url="https://api.deepseek.com"  
 )
 
