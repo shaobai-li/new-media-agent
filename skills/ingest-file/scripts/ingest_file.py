@@ -6,8 +6,10 @@ import os
 import re
 import sys
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from typing import List
+import uuid
 
 import fitz
 import mammoth
@@ -16,6 +18,7 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 SUPPORTED_TYPES = {"pdf", "pptx", "docx", "md"}
+RECORDS_JSONL_PATH = Path(r"D:\inbox\content-agent-data\agents\agent_kb\records.jsonl")
 
 
 def validate_file(file_path: str) -> dict:
@@ -317,10 +320,45 @@ def convert_to_markdown(file_path: str, file_type: str, cache_dir: Path) -> Path
         raise ValueError(f"Unsupported file type for conversion: {file_type}")
 
 
+def append_record_to_jsonl(
+    input_file_path: str,
+    file_type: str,
+    size_bytes: int,
+    cached_path: str,
+    parsed_path: str
+) -> None:
+    """Step 3: 将记录追加到 records.jsonl 文件."""
+    input_path = Path(input_file_path)
+    
+    content_type_map = {
+        "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "md": "text/markdown"
+    }
+    
+    record = {
+        "record_id": f"kb-{uuid.uuid4().hex[:8]}",
+        "name": input_path.name,
+        "type": file_type,
+        "size": f"{size_bytes / 1024:.1f}KB",
+        "date_added": datetime.now().strftime("%Y-%m-%d"),
+        "cached_path": cached_path,
+        "parsed_path": parsed_path,
+        "content_type": content_type_map.get(file_type, "application/octet-stream")
+    }
+    
+    RECORDS_JSONL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(RECORDS_JSONL_PATH, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="文件录入知识库")
     parser.add_argument("--input", required=True, help="输入文件路径")
     parser.add_argument("--cache-dir", type=Path, default=Path("cache"), help="缓存目录 (默认: cache/)")
+    parser.add_argument("--cached-path", help="原始文件的缓存路径 (可选)")
     args = parser.parse_args()
 
     try:
@@ -332,12 +370,23 @@ def main() -> int:
         file_type = result["file_type"]
         md_path = convert_to_markdown(args.input, file_type, args.cache_dir)
 
+        cached_path = args.cached_path if args.cached_path else str(Path(args.input).resolve())
+        
+        append_record_to_jsonl(
+            input_file_path=args.input,
+            file_type=file_type,
+            size_bytes=result["size_bytes"],
+            cached_path=cached_path,
+            parsed_path=str(md_path)
+        )
+
         output = {
             "valid": True,
             "file_type": file_type,
             "size_bytes": result["size_bytes"],
             "markdown_path": str(md_path),
-            "media_dir": str(md_path.parent / "media") if (md_path.parent / "media").exists() else None
+            "media_dir": str(md_path.parent / "media") if (md_path.parent / "media").exists() else None,
+            "record_added": True
         }
         print(json.dumps(output))
         return 0
